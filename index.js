@@ -81,7 +81,7 @@ module.exports = function(app) {
           }
         })
         .catch((err) => {
-          app.setProviderError(err.message);
+          app.setPluginError(err.message);
           app.error(err.message);
         });
     }
