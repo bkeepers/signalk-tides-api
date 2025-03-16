@@ -113,6 +113,8 @@ module.exports = function(app) {
   }
 
   plugin.stop = function() {
+    clearInterval(intervalId);
+
     if ( calculations ) {
       calculations.forEach(calc => {
         if ( calc.stop ) {
