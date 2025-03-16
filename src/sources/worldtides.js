@@ -2,10 +2,8 @@ module.exports = function (app, plugin) {
   var heightLowTime, heightHighTime, heightLow, heightHigh
 
   return {
-    group: 'tides',
     optionKey: 'worldtides',
     title: 'Tide API from worldtides.info',
-    derivedFrom: [ 'navigation.position'],
     properties: {
       worldtidesApiKey: {
         type: 'string',
@@ -23,9 +21,19 @@ module.exports = function (app, plugin) {
       if(app.getSelfPath('environment.tide.timeLow')){
         heightLowTime = app.getSelfPath('environment.tide.timeLow')
       }
-      const endPoint = 'https://www.worldtides.info/api?extremes&lat='+position.latitude+'&lon='+position.longitude+'&length=52200&start='+now+'&datum=LAT&key='+plugin.properties.tides.worldtidesApiKey
+      const endPoint = new URL('https://www.worldtides.info/api');
+      endPoint.search = new URLSearchParams({
+        extremes: true,
+        lat: position.latitude,
+        lon: position.longitude,
+        length: 52200,
+        start: now,
+        datum: "CD",
+        key: plugin.properties.worldtidesApiKey
+      });
 
       if( typeof heightHighTime == 'undefined' || (now < heightHighTime || now < heightLowTime)){
+        app.debug("Fetching worldtides", endPoint.toString());
         const res = await fetch(endPoint);
         if(!res.ok) {
           throw new Error('Failed to fetch worldtides: ' + res.statusText);

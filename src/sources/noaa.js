@@ -146,10 +146,8 @@ module.exports = function (app, plugin) {
   })
 
   return {
-    group: 'tides',
     optionKey: 'noaa',
     title: 'NOAA (US only)',
-    derivedFrom: [ 'navigation.position'],
     debounceDelay: 10 * 1000,
     calculator: function (position) {
       if ( !stations || downloadingStations ) {
