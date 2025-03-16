@@ -17,10 +17,9 @@ const worldtides = require('./sources/worldtides');
 const noaa = require('./sources/noaa')
 
 module.exports = function(app) {
-  // Interval to check for updates
-  let intervalId;
-  // FIXME: move to config
-  const updateInterval = 60 * 60 * 1000; // 1 hour
+  // Interval to update tide data
+  const defaultPeriod = 60; // 1 hour
+  let unsubscribes = [];
 
   const plugin = {
     id: "tides-api",
@@ -30,16 +29,18 @@ module.exports = function(app) {
       title: "Tides API",
       type: "object",
       properties: {
-        default_ttl: {
-          title: "Default TTL",
+        period: {
+          title: "Update frequency",
           type: "number",
-          description: "The plugin won't send out duplicate calculation values for this time period (s) (0=no ttl check)",
-          default: 0
-        }
+          description: "How often to update tide data (minutes)",
+          default: 60,
+          minimum: 1,
+        },
       }
     },
     stop() {
-      clearInterval(intervalId);
+      unsubscribes.forEach((f) => f());
+      unsubscribes = [];
     }
   };
 
@@ -61,22 +62,55 @@ module.exports = function(app) {
   });
 
   plugin.start = function(props) {
+    app.debug("Starting tides-api: " + JSON.stringify(props));
     plugin.properties = props;
 
-    intervalId = setInterval(update, updateInterval);
-    update();
+    app.subscriptionmanager.subscribe(
+      {
+        context: "vessels." + app.selfId,
+        subscribe: [
+          {
+            path: "navigation.position",
+            period: (props.period ?? defaultPeriod) * 60 * 1000,
+            policy: "fixed",
+          },
+        ],
+      },
+      unsubscribes,
+      (subscriptionError) => {
+        app.error("Error:" + subscriptionError);
+      },
+      (delta) => {
+        delta.updates.forEach(({values}) => {
+          values.forEach(({ path, value }) => {
+            if (path === "navigation.position") {
+              performUpdate(value);
+            }
+          });
+        });
+      }
+    );
 
-    async function update() {
-      await Promise.all(sources.map(async source => {
-        if (!props[source.optionKey]) {
+    // Perform initial update on startup
+    performUpdate(app.getSelfPath("navigation.position.value"));
+  }
+
+  async function performUpdate(position) {
+    if (!position) {
+      app.setPluginStatus("No position available");
+      return;
+    }
+
+    await Promise.all(
+      sources.map(async (source) => {
+        if (!plugin.properties[source.optionKey]) {
           app.debug(`${source.optionKey} is not enabled, skipping...`);
-          return
+          return;
         }
 
         try {
-          const position = app.getSelfPath("navigation.position.value");
           const values = await source.calculator(position);
-          if(!values) return
+          if (!values) return;
 
           const delta = {
             context: "vessels." + app.selfId,
@@ -94,8 +128,10 @@ module.exports = function(app) {
           app.setPluginError(err.message);
           app.error(err.message);
         }
-      }));
-    }
+      })
+    );
+
+    app.setPluginStatus("Updated tide data");
   }
 
   return plugin;
