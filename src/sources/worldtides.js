@@ -1,6 +1,4 @@
 module.exports = function (app, plugin) {
-  var heightLowTime, heightHighTime, heightLow, heightHigh
-
   return {
     optionKey: 'worldtides',
     title: 'Tide API from worldtides.info',
@@ -12,16 +10,16 @@ module.exports = function (app, plugin) {
     },
     debounceDelay: 60 * 1000,
     calculator: async function (position) {
-      app.debug('starting worldtides')
+      const timeHigh = new Date(app.getSelfPath('environment.tide.timeHigh.value'))
+      const timeLow = new Date(app.getSelfPath('environment.tide.timeLow.value'))
+      var now = Math.floor(new Date() / 1000)
 
-      var now = Math.floor(new Date()/1000)
-      if(app.getSelfPath('environment.tide.timeHigh')){
-        heightHighTime = app.getSelfPath('environment.tide.timeHigh')
+      if(timeHigh > now && timeLow > now) {
+        app.debug('Existing tide data is valid, skipping worldtides')
+        return
       }
-      if(app.getSelfPath('environment.tide.timeLow')){
-        heightLowTime = app.getSelfPath('environment.tide.timeLow')
-      }
-      const endPoint = new URL('https://www.worldtides.info/api');
+
+      const endPoint = new URL("https://www.worldtides.info/api");
       endPoint.search = new URLSearchParams({
         extremes: true,
         lat: position.latitude,
@@ -29,59 +27,31 @@ module.exports = function (app, plugin) {
         length: 52200,
         start: now,
         datum: "CD",
-        key: plugin.properties.worldtidesApiKey
+        key: plugin.properties.worldtidesApiKey,
       });
 
-      if( typeof heightHighTime == 'undefined' || (now < heightHighTime || now < heightLowTime)){
-        app.debug("Fetching worldtides", endPoint.toString());
-        const res = await fetch(endPoint);
-        if(!res.ok) {
-          throw new Error('Failed to fetch worldtides: ' + res.statusText);
-        }
+      app.debug("Fetching worldtides", endPoint.toString());
+      const res = await fetch(endPoint);
+      if(!res.ok) throw new Error('Failed to fetch worldtides: ' + res.statusText);
 
-        return worldtidesToDeltas(await res.json());
-      } else {
-        app.debug('Skipping worldtides')
-        return
-      }
+      const data = await res.json();
 
-      function worldtidesToDeltas(response){
-        if ( response.status != 200){
-          throw new Error('worldtides response: ' + response.error ? response.error : 'none')
-        }
+      if (data.status != 200) throw new Error("worldtides data: " + data.error ? data.error : "none");
 
-        app.debug("updating tide");
-        app.debug(JSON.stringify(response))
-        let updates = []
-        response.extremes.forEach((extreme, index) => {
-          if (index > 1) return
-          if (extreme.type == 'Low'){
-            heightLowTime = new Date(extreme.dt*1000).toISOString()
-            heightLow = extreme.height
-            updates.push({
-              path: 'environment.tide.heightLow',
-              value: heightLow,
-            })
-            updates.push({
-              path: 'environment.tide.timeLow',
-              value: heightLowTime
-            })
-          }
-          if (extreme.type == 'High'){
-            heightHighTime = new Date(extreme.dt*1000).toISOString()
-            heightHigh = extreme.height
-            updates.push({
-              path: 'environment.tide.heightHigh',
-              value: heightHigh
-            })
-            updates.push({
-              path: 'environment.tide.timeHigh',
-              value: heightHighTime
-            })
-          }
-        })
-        return updates
-      }
+      app.debug("worldtides data: " + JSON.stringify(data));
+
+      let updates = [];
+      data.extremes.slice(0, 2).forEach(({ type, dt, height}) => {
+        updates.push({
+          path: `environment.tide.height${type}`,
+          value: height,
+        });
+        updates.push({
+          path: `environment.tide.time${type}`,
+          value: new Date(dt * 1000).toISOString(),
+        });
+      });
+      return updates;
     }
   }
 }
